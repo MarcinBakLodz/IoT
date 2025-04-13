@@ -1,5 +1,9 @@
 Ten plik zawiera aktualizacje stanu prac, uzupełnianą raz w tygodniu:
 
+13.04.2025
+dokończenie dataloadera i debugging
+	-dodanie opcji zapisu i odczytu datasetów
+	-generacja danych i augmentacja o noise
 29.03.2025
 zapoznanie się z pozyskanymi danymi
   	theory:
