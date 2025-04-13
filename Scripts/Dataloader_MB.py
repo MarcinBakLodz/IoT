@@ -6,6 +6,7 @@ import os
 import enum
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
+from datetime import datetime
 
 class DataLoaderType(enum.Enum):
     POCKET = 1,
@@ -14,9 +15,11 @@ class DataLoaderType(enum.Enum):
     POCKET_OR_WRIST = 4
 
 class CustomDataset(Dataset):
-    def __init__(self, description_file_path:str, data_directory_path:str, data_from_samples_ratio:int, data_lenght:int, random_state:int = 0, mode:DataLoaderType = DataLoaderType.POCKET_AND_WRIST, debug:bool = True):
-        self.files_to_read_list:list = ["acce", "game_rv", "gyro"]#["acce", "game_rv", "gyro", "gyro_bias", "linacce", "magnet", "magnet_bias", "pressure", "rv"]
+    def __init__(self, generate_new_dataset:bool, description_file_path:str = "", data_directory_path:str = "", data_from_samples_ratio:int = -1, data_lenght:int = -1, random_state:int = 0, mode:DataLoaderType = DataLoaderType.POCKET_AND_WRIST, dataset_directory:str = "", debug:bool = True):
+        self.files_to_read_list:list = ["acce", "game_rv", "gyro", "gyro_bias", "linacce", "magnet", "magnet_bias", "pressure", "rv"]
         self.debug = debug
+        self.mode = mode
+        
         self.data_from_samples_ratio = data_from_samples_ratio
         self.data_lenght = data_lenght
         self.mapping = {
@@ -28,18 +31,59 @@ class CustomDataset(Dataset):
             'orange': 4
         }
         
-        
-        if random_state == 0: random_state = random.randint(0, 100)
-        self.sample_names_array:np.ndarray = self.read_description_file(description_file_path)
-        self.train_file_name, self.val_file_name, self.test_file_name = self.shufle_and_split_samples(self.sample_names_array, random_state = random_state)
-        
-        self.train_sensor_reads_with_labels = self.read_all_samples(self.train_file_name, data_directory_path, mode, "train")
-        self.val_sensor_reads_with_labels = self.read_all_samples(self.val_file_name, data_directory_path, mode, "val")
-        self.test_sensor_reads_with_labels = self.read_all_samples(self.test_file_name, data_directory_path, mode, "test")
-        
-        self.train_data, self.train_labels = self.convert_samples_to_data(self.train_sensor_reads_with_labels, self.data_lenght)
-        print(self.train_data.shape)
-        print(self.train_labels.shape)
+        if generate_new_dataset:
+            if random_state == 0: random_state = random.randint(0, 100)
+            self.sample_names_array:np.ndarray = self.read_description_file(description_file_path)
+            self.train_file_name, self.val_file_name, self.test_file_name = self.shufle_and_split_samples(self.sample_names_array, random_state = random_state)
+            
+            self.train_sensor_reads_with_labels = self.read_all_samples(self.train_file_name, data_directory_path, self.mode, "train")
+            self.val_sensor_reads_with_labels = self.read_all_samples(self.val_file_name, data_directory_path, self.mode, "val")
+            self.test_sensor_reads_with_labels = self.read_all_samples(self.test_file_name, data_directory_path, self.mode, "test")
+            
+            self.train_data, self.train_labels = self.convert_samples_to_data(self.train_sensor_reads_with_labels, self.data_lenght)
+            self.val_data, self.val_labels = self.convert_samples_to_data(self.val_sensor_reads_with_labels, self.data_lenght)
+            self.test_data, self.test_labels = self.convert_samples_to_data(self.test_sensor_reads_with_labels, self.data_lenght)
+            print(self.train_data.shape)
+            print(self.train_labels.shape)
+            
+            
+            
+            train = {
+                'data': self.train_data,
+                'labels': self.train_labels
+            }
+            val = {
+                'data': self.val_data,
+                'labels': self.val_labels
+            }
+            test = {
+                'data': self.test_data,
+                'labels': self.test_labels
+            }
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            result_path = os.path.join("Data\Tensory", self.mode.name+timestamp)
+            os.makedirs(result_path, exist_ok=True)
+            torch.save(train, os.path.join(result_path, "train.pt"))
+            torch.save(val, os.path.join(result_path, "val.pt"))
+            torch.save(test, os.path.join(result_path, "test.pt"))
+            
+        else:
+            assert dataset_directory != "", "Bledna sciezka do danych"
+            
+            os.path.isfile(os.path.join(dataset_directory, "train.pt"))
+            os.path.isfile(os.path.join(dataset_directory, "val.pt"))
+            os.path.isfile(os.path.join(dataset_directory, "test.pt"))   
+            
+            loaded_train = torch.load(os.path.join(dataset_directory , 'train.pt'))
+            self.train_data = loaded_train['data']
+            self.train_labels = loaded_train['labels']
+            loaded_val = torch.load(os.path.join(dataset_directory , "val.pt"))
+            self.val_data = loaded_val['data']
+            self.val_labels = loaded_val['labels']
+            loaded_test = torch.load(os.path.join(dataset_directory , "test.pt"))
+            self.train_data = loaded_test['data']
+            self.train_labels = loaded_test['labels']
         
     def read_all_samples(self, samples_array:np.ndarray, basic_directory:str, mode:DataLoaderType = DataLoaderType.POCKET_AND_WRIST, name:str = "default name")-> tuple:
         result = []
@@ -90,7 +134,7 @@ class CustomDataset(Dataset):
             result = torch.empty(0)
             print("[{name}] No valid data found across sessions.")
         
-        return zip(result, result_label)
+        return list(zip(result, result_label))
                
     def read_all_sensors(self, basic_path:str, bias_head:int, bias_tail:int):
         all_sensor_data = []
@@ -148,18 +192,32 @@ class CustomDataset(Dataset):
         if self.debug: print(f"Final tensor shape: {tensor.shape}")
         return tensor
             
-    def convert_samples_to_data(self, list_of_samples_with_labels:list, lenght:int):
+    def convert_samples_to_data(self, list_of_samples_with_labels: list, length: int, noise_std: float = 0.01):
         data_list = []
         label_list = []
-        for _ in range(self.data_from_samples_ratio):
+        print("Ratio:", self.data_from_samples_ratio)
+        
+        for i in range(self.data_from_samples_ratio):
+            print(f"Round {i+1}/{self.data_from_samples_ratio}")
             for sample, label in list_of_samples_with_labels:
-                random_moment = random.randint(0, sample.shape[0] - lenght)
-                data_list.append(sample[random_moment:random_moment+lenght])
+                if sample.shape[0] < length:
+                    print("Skipping sample - too short:", sample.shape)
+                    continue
+
+                random_moment = random.randint(0, sample.shape[0] - length)
+                chunk = sample[random_moment:random_moment + length]
+                noise = torch.randn_like(chunk) * noise_std
+                chunk_with_noise = chunk + noise
+
+                data_list.append(chunk_with_noise)
+                if self.debug: print(len(data_list))
                 label_list.append(self.color_str_to_int(label))
-                
+
+            print(f"Accumulated samples: {len(data_list)}")
+
         data_tensor = torch.stack(data_list)
         label_tensor = torch.tensor(label_list)
-        
+
         return data_tensor, label_tensor
 
     def color_str_to_int(self, color):
@@ -208,7 +266,7 @@ class CustomDataset(Dataset):
     
 
 if __name__ == "__main__":
-    dataset = CustomDataset("Data\\opis_przejsc.csv", "C:\\Users\\Marcin\\Desktop\\Studia\\IoT\\Data", data_from_samples_ratio=4, data_lenght = 100 , random_state = 42, mode = DataLoaderType.POCKET, debug=False)
+    dataset = CustomDataset(False, "Data\\opis_przejsc.csv", "C:\\Users\\Marcin\\Desktop\\Studia\\IoT\\Data", data_from_samples_ratio=3, data_lenght = 400 , random_state = 42, mode = DataLoaderType.POCKET, dataset_directory =r"C:\Users\Marcin\Desktop\Studia\IoT\Data\Tensory\POCKET20250413_114501", debug=False)
     print("-------------------------------------")
 
     
