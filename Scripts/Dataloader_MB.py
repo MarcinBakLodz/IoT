@@ -13,6 +13,11 @@ class DataLoaderType(enum.Enum):
     WRIST = 2,
     POCKET_AND_WRIST = 3,
     POCKET_OR_WRIST = 4
+    
+class DataType(enum.Enum):
+    TRAIN = 1,
+    VALIDATION = 2,
+    TEST = 3
 
 class CustomDataset(Dataset):
     def __init__(self, generate_new_dataset:bool, description_file_path:str = "", data_directory_path:str = "", data_from_samples_ratio:int = -1, data_lenght:int = -1, random_state:int = 0, mode:DataLoaderType = DataLoaderType.POCKET_AND_WRIST, dataset_directory:str = "", debug:bool = True):
@@ -68,6 +73,8 @@ class CustomDataset(Dataset):
             torch.save(val, os.path.join(result_path, "val.pt"))
             torch.save(test, os.path.join(result_path, "test.pt"))
             
+            mean, std = self.compute_channel_stats(self.train_data.numpy())
+            
         else:
             assert dataset_directory != "", "Bledna sciezka do danych"
             
@@ -82,8 +89,44 @@ class CustomDataset(Dataset):
             self.val_data = loaded_val['data']
             self.val_labels = loaded_val['labels']
             loaded_test = torch.load(os.path.join(dataset_directory , "test.pt"))
-            self.train_data = loaded_test['data']
-            self.train_labels = loaded_test['labels']
+            self.test_data = loaded_test['data']
+            self.test_labels = loaded_test['labels']
+            
+            assert self.train_data.shape[0] == self.train_labels.shape[0], "Błedne dane treningowe"
+            assert self.test_data.shape[0] == self.test_labels.shape[0], "Błedne dane testowe"
+            assert self.val_data.shape[0] == self.val_labels.shape[0], "Błedne dane walidacyjne"
+       
+    def set_datatype(self, type:DataType):
+        self.datatype = type
+         
+    def __len__(self):
+        if self.datatype == DataType.TRAIN:
+            return len(self.train_data)
+        if self.datatype == DataType.VALIDATION:
+            return len(self.val_data)
+        if self.datatype == DataType.TEST:
+            return len(self.test_data)
+
+    def __getitem__(self, idx,):
+        if self.datatype == DataType.TRAIN:
+            sample = self.train_data[idx]
+            label = self.train_labels[idx]
+        if self.datatype == DataType.VALIDATION:
+            sample = self.val_data[idx]
+            label = self.val_labels[idx]
+        if self.datatype == DataType.TEST:
+            sample = self.test_data[idx]
+            label = self.test_labels[idx]
+        
+        # if self.transform:
+        #     sample = self.transform(sample)
+
+        return sample, label
+       
+    def compute_channel_stats(self, data):
+        mean = data.mean(axis=(0, 1))
+        std = data.std(axis=(0, 1))
+        return mean, std   
         
     def read_all_samples(self, samples_array:np.ndarray, basic_directory:str, mode:DataLoaderType = DataLoaderType.POCKET_AND_WRIST, name:str = "default name")-> tuple:
         result = []
@@ -192,7 +235,7 @@ class CustomDataset(Dataset):
         if self.debug: print(f"Final tensor shape: {tensor.shape}")
         return tensor
             
-    def convert_samples_to_data(self, list_of_samples_with_labels: list, length: int, noise_std: float = 0.01):
+    def convert_samples_to_data(self, list_of_samples_with_labels: list, length: int):
         data_list = []
         label_list = []
         print("Ratio:", self.data_from_samples_ratio)
@@ -206,10 +249,8 @@ class CustomDataset(Dataset):
 
                 random_moment = random.randint(0, sample.shape[0] - length)
                 chunk = sample[random_moment:random_moment + length]
-                noise = torch.randn_like(chunk) * noise_std
-                chunk_with_noise = chunk + noise
 
-                data_list.append(chunk_with_noise)
+                data_list.append(chunk)
                 if self.debug: print(len(data_list))
                 label_list.append(self.color_str_to_int(label))
 
