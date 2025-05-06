@@ -21,7 +21,7 @@ class DataType(enum.Enum):
 
 class CustomDataset(Dataset):
     def __init__(self, generate_new_dataset:bool, description_file_path:str = "", data_directory_path:str = "", data_from_samples_ratio:int = -1, data_lenght:int = -1, random_state:int = 0, mode:DataLoaderType = DataLoaderType.POCKET_AND_WRIST, dataset_directory:str = "", debug:bool = True):
-        self.files_to_read_list:list = ["acce", "game_rv", "gyro", "gyro_bias", "linacce", "magnet", "magnet_bias", "pressure", "rv"]
+        self.files_to_read_list:list = ["acce", "game_rv", "gyro", "linacce"]#"gyro_bias", "magnet", "magnet_bias", "pressure", "rv"]
         self.debug = debug
         self.mode = mode
         
@@ -307,7 +307,7 @@ class CustomDataset(Dataset):
     
 
 if __name__ == "__main__":
-    dataset = CustomDataset(False, "Data\\opis_przejsc.csv", "C:\\Users\\Marcin\\Desktop\\Studia\\IoT\\Data", data_from_samples_ratio=3, data_lenght = 400 , random_state = 42, mode = DataLoaderType.POCKET, dataset_directory =r"C:\Users\Marcin\Desktop\Studia\IoT\Data\Tensory\POCKET20250413_114501", debug=False)
+    dataset = CustomDataset(True, "Data\\opis_przejsc.csv", "C:\\Users\\Marcin\\Desktop\\Studia\\IoT\\Data", data_from_samples_ratio=50, data_lenght = 400 , random_state = 42, mode = DataLoaderType.POCKET, dataset_directory =r"C:\Users\Marcin\Desktop\Studia\IoT\Data\Tensory\POCKET20250427_172800", debug=False)
     print("-------------------------------------")
 
     

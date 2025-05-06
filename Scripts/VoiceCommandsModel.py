@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import os
 import torch
 import torch.nn as nn
-from Dataloader_MB import CustomDataset, DataLoaderType, DataType
+from VoiceCommandsDataset import AudioDataset, ListDataset
 from torch.utils.data import DataLoader
 import copy
 import matplotlib.pyplot as plt
@@ -17,9 +17,9 @@ api_key = os.getenv("COMET_API_KEY")
 
 
 
-class DrunknesClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size=128, num_layers=2, num_classes=6, dropout=0.3, bidirectional=False):
-        super(DrunknesClassifier, self).__init__()
+class VoiceCommandsClassifier(nn.Module):
+    def __init__(self, input_size, hidden_size=64, num_layers=2, num_classes=6, dropout=0.3, bidirectional=False):
+        super(VoiceCommandsClassifier, self).__init__()
 
         self.lstm = nn.LSTM(
             input_size=input_size,  # channels
@@ -35,6 +35,8 @@ class DrunknesClassifier(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
+        if x.shape[1] == 1:
+            x = x.permute(0, 2, 1)
         out, (hn, cn) = self.lstm(x) 
         last_hidden = hn[-1]  # shape: [batch, hidden]
         logits = self.fc(last_hidden)
@@ -80,7 +82,7 @@ class DrunknesClassifier(nn.Module):
 
             # Zapis co 10 epok
             if (epoch + 1) % 100 == 0:
-                torch.save(self.state_dict(), f"Scripts\\Model\\DrunknessClassifier\\2\\model_epoch_{epoch + 1}.pt")
+                torch.save(self.state_dict(), f"Scripts\\Model\\VoiceCommands\\1\\model_epoch_{epoch + 1}.pt")
                 print(f"Model checkpoint saved at epoch {epoch + 1}.")
 
             # Early stopping
@@ -90,7 +92,7 @@ class DrunknesClassifier(nn.Module):
 
         # Zapisz najlepszy model na koniec
         self.load_state_dict(best_model_wts)
-        torch.save(self.state_dict(), r"Scripts\Model\DrunknessClassifier\2\best_model.pt")
+        torch.save(self.state_dict(), r"Scripts\Model\VoiceCommands\1\best_model.pt")
         print(f"Best model saved with accuracy: {best_val_acc:.2f}%")
 
 
@@ -99,19 +101,25 @@ class DrunknesClassifier(nn.Module):
         correct = 0
         total = 0
 
-        for inputs, labels in loader:
-            labels = labels.long()
+        self.train()
+
+        for inputs, speaker, content in loader:
+            # content.shape = [batch_size]
+            inputs = inputs.float()
+            content = content.long()  # wymagane przez CrossEntropyLoss
+
             optimizer.zero_grad()
 
-            outputs = self(inputs)
-            loss = criterion(outputs, labels)
+            outputs = self(inputs)  # outputs.shape = [batch_size, num_classes]
+            loss = criterion(outputs, content)
+
             loss.backward()
             optimizer.step()
 
             total_loss += loss.item()
             preds = torch.argmax(outputs, dim=1)
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
+            correct += (preds == content).sum().item()
+            total += content.size(0)
 
         avg_loss = total_loss / len(loader)
         accuracy = correct / total * 100
@@ -124,15 +132,18 @@ class DrunknesClassifier(nn.Module):
         total = 0
 
         with torch.no_grad():
-            for inputs, labels in loader:
-                labels = labels.long()
+            for inputs, speaker, content in loader:
+                inputs = inputs.float()
+                content = content.long()
+
                 outputs = self(inputs)
-                loss = criterion(outputs, labels)
+                loss = criterion(outputs, content)
 
                 total_loss += loss.item()
                 preds = torch.argmax(outputs, dim=1)
-                correct += (preds == labels).sum().item()
-                total += labels.size(0)
+                correct += (preds == content).sum().item()
+                total += content.size(0)
+
 
         avg_loss = total_loss / len(loader)
         accuracy = correct / total * 100
@@ -161,7 +172,6 @@ class DrunknesClassifier(nn.Module):
         plt.title("Confusion Matrix")
         plt.show()
 
-        # Wyświetl próbki
         print("\n--- Visualizing Individual Samples ---")
         with torch.no_grad():
             for i, (inputs, labels) in enumerate(loader):
@@ -175,7 +185,7 @@ class DrunknesClassifier(nn.Module):
                 print(f"True label: {class_names[label] if class_names else label}")
                 print(f"Predicted:  {class_names[pred] if class_names else pred}")
 
-                x_np = inputs.squeeze(0).cpu().numpy()  # [seq_len, channels]
+                x_np = inputs.squeeze(0).cpu().numpy()
 
                 plt.figure(figsize=(12, 6))
                 plt.title(f"Prediction: {pred} | Ground Truth: {label}")
@@ -191,24 +201,29 @@ class DrunknesClassifier(nn.Module):
 if __name__ == "__main__":
     experiment = Experiment(
         api_key = os.getenv("COMET_API_KEY"),
-        project_name="drunkness-classifier"
+        project_name="voice-commands"
     )
-    batch_size = 32
-    seq_len = 200
-    channels = 13
+    batch_size = 4
+    seq_len = 84319
+    channels = 1
 
     x = torch.randn(batch_size, seq_len, channels)
 
-    model = DrunknesClassifier(input_size=13)
+    model = VoiceCommandsClassifier(input_size=1, num_classes=42)
     print(model(x).shape)  # shape: [batch, 6]
     
-    dataset = CustomDataset(False, "Data\\opis_przejsc.csv", "C:\\Users\\Marcin\\Desktop\\Studia\\IoT\\Data", data_from_samples_ratio=3, data_lenght = 400 , random_state = 42, mode = DataLoaderType.POCKET, dataset_directory =r"C:\Users\Marcin\Desktop\Studia\IoT\Data\Tensory\POCKET20250427_172927", debug=False)
-    dataset.set_datatype(DataType.TRAIN)
-    train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
-    dataset.set_datatype(DataType.VALIDATION)
-    val_loader = DataLoader(dataset, batch_size=32)
-    dataset.set_datatype(DataType.TEST)
-    test_loader = DataLoader(dataset, batch_size=1)
+    dataset_path = "Data\\VoiceCommands\\Gloskomendy"
+    dataset = AudioDataset(root_dir=dataset_path)
 
-    model.fit(800, train_loader, val_loader, experiment, patience=80, learning_rate=3e-5)
+    train_list, val_list, test_list = dataset.get_splits()
+    
+    train_dataset = ListDataset(train_list)
+    val_dataset = ListDataset(val_list)
+    test_dataset = ListDataset(test_list)
+
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=8)
+    test_loader = DataLoader(test_dataset, batch_size=1)
+
+    model.fit(800, train_loader, val_loader, experiment, patience=80, learning_rate=3e-4)
     model.test_and_visualize(test_loader, ["none", "green", "blue", "black", "red", "orange"])
