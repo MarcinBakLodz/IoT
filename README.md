@@ -1,5 +1,11 @@
 Ten plik zawiera aktualizacje stanu prac, uzupełnianą raz w tygodniu:
 
+6.05.2025
+VoiceCommands
+	-naprawa dataset
+ 	-przerobienie poprzedniego modelu
+  	-analiza funkcji strat
+
 13.04.2025
 dokończenie dataloadera i debugging
 	-dodanie opcji zapisu i odczytu datasetów
